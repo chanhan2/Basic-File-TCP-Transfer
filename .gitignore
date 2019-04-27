@@ -1,2 +1,13 @@
-# Don't track
+# Files to not track
+*.DS_Store
 *.sh
+*.txt
+*.o
+
+# Directories to not track
+bin/
+
+# Etc...
+client
+server
+Makefile
