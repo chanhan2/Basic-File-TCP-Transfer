@@ -25,7 +25,8 @@ int getSize(char *array);
 typedef struct {
     char file_type;
     char filename[256];
-    char content[256];
+    //char content[256];
+    char content;
     char ln_filename[256];
     int content_size;
     mode_t permission;
@@ -98,7 +99,8 @@ void transfer_file(char *file, mode_t permission, int isLink, int socket) {
 
     TCP_Content info;
     strcpy(info.filename, file);
-    strcpy(info.content, "\n");
+    //strcpy(info.content, "\n");
+    info.content = '\n';
     info.permission = permission;
     if (isLink == 1) {
         info.file_type = '\0';
@@ -118,8 +120,11 @@ void transfer_file(char *file, mode_t permission, int isLink, int socket) {
     transmition_error(n);
 
     info.file_type = 'f';
-    while (fgets (info.content, 256, fs) != NULL) {
-        encryptContent(info.content, &info.content_size);
+    int ch;
+    //while (fgets (info.content, 256, fs) != NULL) {
+    while ((ch = fgetc(fs)) != EOF) {
+        //encryptContent(info.content, &info.content_size);
+        info.content = ch;
         n = send(socket, (TCP_Content *)&info, sizeof(TCP_Content), 0);
         transmition_error(n);
     }
@@ -132,7 +137,8 @@ void transfer_file(char *file, mode_t permission, int isLink, int socket) {
 void tcp_directory(char *file, mode_t permission, int isLink, int socket) {
     TCP_Content info;
     strcpy(info.filename, file);
-    strcpy(info.content, "\n");
+    //strcpy(info.content, "\n");
+    info.content = '\n';
     info.permission = permission;
     if (isLink == 1) {
         info.file_type = '\0';

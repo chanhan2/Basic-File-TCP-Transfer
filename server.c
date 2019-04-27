@@ -25,7 +25,7 @@ int length(char *array);
 typedef struct {
     char file_type;
     char filename[256];
-    char content[256];
+    char content;
     char ln_filename[256];
     int content_size;
     mode_t permission;
@@ -155,8 +155,9 @@ void saveFile (int socket) {
             } else fclose(t);
             printf("Finished file transfer for %s\n", info.filename);
         } else {
-            decryptContent(info.content, info.content_size);
-            fputs(info.content, t);
+            //decryptContent(info.content, info.content_size);
+            //fputs(info.content, t);
+            fputc(info.content, t);
         }
     }
     if (count < 0) error("ERROR reading from socket");
