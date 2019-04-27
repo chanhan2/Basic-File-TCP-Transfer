@@ -1,6 +1,9 @@
 /*
-    TCP Server
+    Simple TCP Server
 */
+
+/* macro */
+#define __SECRET__ "d4a885a0a9390eb86edec9653cc7dae57a1520968fa89c57c33da4a50e2312f192c3e18f31edd2e3668e19e8e3a0e3effab1402653d40c07f52b2fbc9506ce06"
 
 #include <fcntl.h>
 #include <stdbool.h>
@@ -13,10 +16,12 @@
 #include <netinet/in.h>
 #include <sys/stat.h>
 
-#define __SECRET__ "d4a885a0a9390eb86edec9653cc7dae57a1520968fa89c57c33da4a50e2312f192c3e18f31edd2e3668e19e8e3a0e3effab1402653d40c07f52b2fbc9506ce06"
-
 /* function prototype */
+void error(const char *msg);
 void relay_message(int socket);
+void encryptContent(char *array, int *content_size);
+void decryptContent(char *array, int size);
+void saveFile (int socket);
 bool send_package(int socket, void *buffer, size_t length);
 int symlink_resolve(char *file, char *symlink, int tries);
 int link_symlink(char *file, char *symlink, int tries);
@@ -25,6 +30,7 @@ int length(char *array);
 typedef struct {
     char file_type;
     char filename[256];
+    //char content[256];
     char content;
     char ln_filename[256];
     int content_size;
@@ -130,7 +136,7 @@ void saveFile (int socket) {
     int count = 0, total = 0;
     FILE *t;
 
-    while (((count = recv(socket, (TCP_Content *)&info, sizeof(TCP_Content), 0)) > 0)) {
+    while (((count = recv(socket, (TCP_Content *)&info, sizeof(TCP_Content), 0)) > 0) && (info.file_type != 'q')) {
         total += count;
         if (info.file_type == '_') {
             t = fopen(info.filename, "w+b");
@@ -161,6 +167,7 @@ void saveFile (int socket) {
         }
     }
     if (count < 0) error("ERROR reading from socket");
+    printf("Finished client request\n");
 }
 
 int main(int argc, char *argv[]) {

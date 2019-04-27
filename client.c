@@ -1,6 +1,9 @@
 /*
-    TCP Client
+    Simple TCP Client
 */
+
+/* macro */
+#define __SECRET__ "d4a885a0a9390eb86edec9653cc7dae57a1520968fa89c57c33da4a50e2312f192c3e18f31edd2e3668e19e8e3a0e3effab1402653d40c07f52b2fbc9506ce06"
 
 #include <limits.h>
 #include <fcntl.h>
@@ -16,8 +19,17 @@
 #include <netdb.h>
 #include <string.h>
 
-#define __SECRET__ "d4a885a0a9390eb86edec9653cc7dae57a1520968fa89c57c33da4a50e2312f192c3e18f31edd2e3668e19e8e3a0e3effab1402653d40c07f52b2fbc9506ce06"
-
+/* function prototype */
+void error(const char *msg);
+void transmition_error(int check, int sockfd);
+void end_tcp(int sockfd);
+void printUseless(int indent);
+void encryptContent(char *array, int *content_size);
+void decryptContent(char *array, int size);
+void transfer_file(char *file, mode_t permission, int isLink, int socket);
+void tcp_directory(char *file, mode_t permission, int isLink, int socket);
+void listdir(int socket, const char *name, int indent);
+void relayer(int socket);
 char *concat(const char *s1, const char *s2);
 int connect_tcp(char *host, char *port);
 int getSize(char *array);
@@ -37,9 +49,10 @@ void error(const char *msg) {
     exit(0);
 }
 
-void transmition_error(int check) {
+void transmition_error(int check, int sockfd) {
     if (check < 0) {
         perror("Transmition failure ");
+        close(sockfd);
         exit(0);
     }
 }
@@ -67,6 +80,18 @@ int connect_tcp(char *host, char *port) {
     if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) error("ERROR connecting");
 
     return sockfd;
+}
+
+void end_tcp(int sockfd) {
+    TCP_Content info;
+    strcpy(info.filename, "");
+    //strcpy(info.content, "\n");
+    info.content = '\n';
+    info.permission = 0000;
+    info.file_type = 'q';
+    strcpy(info.ln_filename, "\0");
+    int n = send(sockfd, (TCP_Content *)&info, sizeof(TCP_Content), 0);
+    transmition_error(n, sockfd);
 }
 
 void printUseless(int indent) {
@@ -117,7 +142,7 @@ void transfer_file(char *file, mode_t permission, int isLink, int socket) {
     }
 
     int n = send(socket, (TCP_Content *)&info, sizeof(TCP_Content), 0);
-    transmition_error(n);
+    transmition_error(n, socket);
 
     info.file_type = 'f';
     int ch;
@@ -126,11 +151,11 @@ void transfer_file(char *file, mode_t permission, int isLink, int socket) {
         //encryptContent(info.content, &info.content_size);
         info.content = ch;
         n = send(socket, (TCP_Content *)&info, sizeof(TCP_Content), 0);
-        transmition_error(n);
+        transmition_error(n, socket);
     }
     info.file_type = ' ';
     send(socket, (TCP_Content *)&info, sizeof(TCP_Content), 0);
-    transmition_error(n);
+    transmition_error(n, socket);
     fclose(fs);
 }
 
@@ -155,7 +180,7 @@ void tcp_directory(char *file, mode_t permission, int isLink, int socket) {
     }
 
     int n = send(socket, (TCP_Content *)&info, sizeof(TCP_Content), 0);
-    transmition_error(n);
+    transmition_error(n, socket);
 }
 
 void listdir(int socket, const char *name, int indent) {
@@ -232,7 +257,7 @@ void listdir(int socket, const char *name, int indent) {
                 continue;
             }
             if (S_ISLNK(statRes.st_mode) || !S_ISDIR(statRes.st_mode)) continue;
-            //tcp_directory(t, statRes.st_mode, 1, socket);
+            tcp_directory(t, statRes.st_mode, 1, socket);
             printf("%*s~%s\n", indent, "", t_tag);
         }
     }
@@ -268,7 +293,7 @@ void relayer(int socket) {
 
 int main(int argc, char *argv[]) {
     if (argc < 4) {
-        fprintf(stderr,"usage %s hostname port <path>\n", argv[0]);
+        fprintf(stderr,"usage %s hostname port <directory_path>\n", argv[0]);
         exit(0);
     }
 
@@ -280,6 +305,7 @@ int main(int argc, char *argv[]) {
     }
     int sockfd = connect_tcp(argv[1], argv[2]);
     listdir(sockfd, argv[3], 0);
+    end_tcp(sockfd);
     //relayer(sockfd);
 
     close(sockfd);
