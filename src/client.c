@@ -17,7 +17,6 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
-#include <string.h>
 
 /* external library */
 #include "client.h"
@@ -120,6 +119,14 @@ void mod_path(const char *origin, char *dest, char *file, char *path, int shift)
     strcat(path, &file[shift]);
 }
 
+void file_signature(char *file, char *dest) {
+    FILE *fh = fopen(file, "rb");
+    char *file_hash = hash(fh);
+    copyHash(dest, file_hash);
+    closeBufferStream(&fh);
+    free(file_hash);
+}
+
 void copyHash(char *array, char *hash) {
     int i;
     for (i = 0; i < HASH_SIZE; i++)
@@ -127,7 +134,7 @@ void copyHash(char *array, char *hash) {
 }
 
 char *concat(const char *s1, const char *s2) {
-    char *result = malloc(strlen(s1) + strlen(s2) + 1);
+    char *result = (char*)malloc(strlen(s1) + strlen(s2) + 1);
     strcpy(result, s1);
     strcat(result, s2);
     return result;
@@ -158,7 +165,6 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
     info.size = statRes.st_size;
 
     if (isLink == 1) {
-        info.file_type = '~';
         char buf[PATH_MAX + 1];
         //char base[PATH_MAX + 1];
         char basetest[PATH_MAX + 1];
@@ -167,6 +173,8 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
         char *baseline2 = realpath(src, basetest);
         char soft_path_trim[PATH_MAX + 1];
         mod_path(origin, dest, &buf[strlen(baseline2)], soft_path_trim, 1);
+
+        info.file_type = '~';
         strcpy(info.ln_filename, soft_path_trim);
         /*
         printf("Base path is -> %s\n", &buf[strlen(baseline)]);
@@ -178,15 +186,9 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
         transmission_error(tcp_package(socket, (tcp_content *)&info, sizeof(tcp_content), 0, 0), socket);
     } else {
         info.file_type = '_';
-        strcpy(info.ln_filename, "\0");
-
-        FILE *fh = fopen(file, "r");
-        char *file_hash = hash(fh);
-        copyHash(info.hash, file_hash);
-        closeBufferStream(&fh);
-        free(file_hash);
+        strcpy(info.ln_filename, "");
+        file_signature(file, info.hash);
         transmission_error(tcp_package(socket, (tcp_content *)&info, sizeof(tcp_content), 0, 0), socket);
-
         if (get_server_replay(socket) == 'S') return;
     }
 

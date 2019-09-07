@@ -74,14 +74,23 @@ int length(char *array) {
 int compareHash(char *hash_f1, char *hash_f2) {
     int i;
     for (i = 0; i < HASH_SIZE; i++)
-        if (hash_f1[i] != hash_f2[i]) return 0;
-    return 1;
+        if (hash_f1[i] != hash_f2[i]) break;
+    return i == HASH_SIZE;
 }
 
 void packageReply(int socket, char command) {
     tcp_content package_call;
     package_call.command = command;
     transmission_error(tcp_package(socket, (tcp_content *)&package_call, sizeof(tcp_content), 0), socket);
+}
+
+int update_file_permission(char *file, mode_t permission) {
+    if (chmod(file, permission) < 0) {
+        printf("rip in aids again my friend\n");
+        printf("Error on file -> %s\n", file);
+        return 0;
+    }
+    return 1;
 }
 
 int symlink_resolve(char *file, char *symlink, int tries) {
@@ -182,11 +191,12 @@ void saveFile (int socket) {
         }
         if (info->file_type == '_') {
             struct stat statRes;
+            
             if (lstat(info->filename, &statRes) == 0) {
-                FILE *fp = fopen(info->filename, "r");
+                FILE *fp = fopen(info->filename, "rb");
                 char *file_hash = hash(fp);
                 closeBufferStream(&fp);
-                if ((compareHash(info->hash, file_hash) == 0) && (info->size == statRes.st_size)) {
+                if (compareHash(info->hash, file_hash) && (info->size == statRes.st_size)) {
                     printf("skip package update for pagekage '%s'\n", info->filename);
                     packageReply(socket, 'S');
                     continue;
@@ -201,10 +211,7 @@ void saveFile (int socket) {
                 printf("rip in aids my friend\n");
                 printf("Error on file -> %s\n", info->filename);
             }
-            if (chmod(info->filename, info->permission) < 0) {
-                printf("rip in aids again my friend\n");
-                printf("Error on file -> %s\n", info->filename);
-            }
+            if (update_file_permission(info->filename, info->permission) == 0) break;
         } else if (info->file_type == 'd') {
             struct stat st;
             if (stat(info->filename, &st) == -1) mkdir(info->filename, info->permission);
@@ -213,6 +220,7 @@ void saveFile (int socket) {
             if (link_symlink(info->ln_filename, info->filename, 3) == 1) {
                 printf("Linked %s to %s as a symlink\n", info->filename, info->ln_filename);
             } else printf("Could not linked %s to %s as a symlink\n", info->filename, info->ln_filename);
+            if (update_file_permission(info->ln_filename, info->permission) == 0) break;
         } else if (info->file_type == ' ') {
             closeBufferStream(&t);
             printf("Finished file transfer for %s\n", info->filename);

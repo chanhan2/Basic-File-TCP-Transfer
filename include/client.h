@@ -10,6 +10,7 @@ void connection_error(const char *msg);
 void end_tcp(int sockfd);
 void printUseless(int indent);
 void mod_path(const char *origin, char *dest, char *file, char *path, int shift);
+void file_signature(char *file, char *dest);
 void copyHash(char *array, char *hash);
 void closeBufferStream(FILE **p);
 int tcp_package(int socket, void *package, size_t length, int flag, int type);

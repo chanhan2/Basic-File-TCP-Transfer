@@ -10,6 +10,7 @@ void relay_message(int socket);
 void closeBufferStream(FILE **p);
 void saveFile (int socket);
 void packageReply(int socket, char command);
+int update_file_permission(char *file, mode_t permission);
 int tcp_package(int socket, void *package, size_t length, int flag);
 bool send_package(int socket, void *buffer, size_t length);
 int symlink_resolve(char *file, char *symlink, int tries);
