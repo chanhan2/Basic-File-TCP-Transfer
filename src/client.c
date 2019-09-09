@@ -40,9 +40,11 @@ int tcp_package(int socket, void *package, size_t length, int flag, int type) {
 }
 
 void error(int socket, int status, const char *msg) {
-    tcp_content package_call;
-    package_call.file_type = 'E';
-    transmission_error(tcp_package(socket, (tcp_content *)&package_call, sizeof(tcp_content), 0, 0), socket);
+    tcp_content *package_call = (tcp_content*)malloc(sizeof(tcp_content) + 1);
+    if (!package_call) error(socket, 1, "Memory allocation overflow error\n");
+    package_call->file_type = 'E';
+    transmission_error(tcp_package(socket, package_call, sizeof(tcp_content), 0, 0), socket);
+    free(package_call);
     perror(msg);
     exit(status);
 }
@@ -86,21 +88,23 @@ int connect_tcp(char *host, char *port) {
 
 char get_server_replay(int socket){
     int nbytes = 0;
-    tcp_content package_call;
-    while (((nbytes += recv(socket, (tcp_content *)&package_call, sizeof(tcp_content), 0)) > 0) && (nbytes != sizeof(tcp_content)));
-    return (nbytes == sizeof(tcp_content)) ? package_call.command : '?';
+    tcp_content *package_call = (tcp_content*)malloc(sizeof(tcp_content) + 1);
+    if (!package_call) error(socket, 1, "Memory allocation overflow error\n");
+    while (((nbytes += recv(socket, package_call, sizeof(tcp_content), 0)) > 0) && (nbytes != sizeof(tcp_content)));
+    return (nbytes == sizeof(tcp_content)) ? package_call->command : '?';
 }
 
 void end_tcp(int sockfd) {
-    tcp_content info;
-    strcpy(info.filename, "");
+    tcp_content *info = (tcp_content*)malloc(sizeof(tcp_content) + 1);
+    if (!info) error(sockfd, 1, "Memory allocation overflow error\n");
+    strcpy(info->filename, "");
     //strcpy(info.content, "\n");
-    info.content = '\n';
-    info.permission = 0000;
-    info.file_type = 'q';
-    info.command = 'Q';
-    strcpy(info.ln_filename, "\0");
-    transmission_error(tcp_package(sockfd, (tcp_content *)&info, sizeof(tcp_content), 0, 0), sockfd);
+    info->content = '\n';
+    info->permission = 0000;
+    info->file_type = 'q';
+    info->command = 'Q';
+    strcpy(info->ln_filename, "\0");
+    transmission_error(tcp_package(sockfd, info, sizeof(tcp_content), 0, 0), sockfd);
 
     char reply = get_server_replay(sockfd);
     if (reply == 'C') printf("TRANSMIT_OK\n");
@@ -155,14 +159,15 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
     if (S_ISLNK(statRes.st_mode)) isLink = 1;
     if (S_ISREG(statRes.st_mode)) isLink = 0;
 
-    tcp_content info;
+    tcp_content *info = (tcp_content*)malloc(sizeof(tcp_content) + 1);
+    if (!info) error(socket, 1, "Memory allocation overflow error\n");
     char path_trim[PATH_MAX + 1];
     mod_path(origin, dest, file, path_trim, shift);
-    strcpy(info.filename, path_trim);
+    strcpy(info->filename, path_trim);
     //strcpy(info.content, "\n");
-    info.content = '\n';
-    info.permission = permission;
-    info.size = statRes.st_size;
+    info->content = '\n';
+    info->permission = permission;
+    info->size = statRes.st_size;
 
     if (isLink == 1) {
         char buf[PATH_MAX + 1];
@@ -174,8 +179,8 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
         char soft_path_trim[PATH_MAX + 1];
         mod_path(origin, dest, &buf[strlen(baseline2)], soft_path_trim, 1);
 
-        info.file_type = '~';
-        strcpy(info.ln_filename, soft_path_trim);
+        info->file_type = '~';
+        strcpy(info->ln_filename, soft_path_trim);
         /*
         printf("Base path is -> %s\n", &buf[strlen(baseline)]);
         printf("symlink path is -> %s\n", file);
@@ -183,16 +188,16 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
         printf("Baseline path for src -> %s\n", baseline2);
         printf("Relative path -> %s\n", &buf[strlen(baseline2)]);
         */
-        transmission_error(tcp_package(socket, (tcp_content *)&info, sizeof(tcp_content), 0, 0), socket);
+        transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
     } else {
-        info.file_type = '_';
-        strcpy(info.ln_filename, "");
-        file_signature(file, info.hash);
-        transmission_error(tcp_package(socket, (tcp_content *)&info, sizeof(tcp_content), 0, 0), socket);
+        info->file_type = '_';
+        strcpy(info->ln_filename, "");
+        file_signature(file, info->hash);
+        transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
         if (get_server_replay(socket) == 'S') return;
     }
 
-    info.file_type = 'f';
+    info->file_type = 'f';
     FILE *fs = fopen(file, "rb");
     if(fs == NULL) {
         printf("ERROR: File %s not found.\n", file);
@@ -202,47 +207,50 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
     int ch;
     //while (fgets (info.content, 256, fs) != NULL) {
     while ((ch = fgetc(fs)) != EOF) {
-        info.content = ch;
-        encryptContent(&info.content, &info.content_size);
-        transmission_error(tcp_package(socket, (tcp_content *)&info, sizeof(tcp_content), 0, 0), socket);
+        info->content = ch;
+        encryptContent(&info->content, &info->content_size);
+        transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
     }
-    info.file_type = ' ';
-    transmission_error(tcp_package(socket, (tcp_content *)&info, sizeof(tcp_content), 0, 0), socket);
+    info->file_type = ' ';
+    transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
     closeBufferStream(&fs);
+    free(info);
 }
 
 void tcp_directory(char *file, const char *origin, const char *src, char *dest, mode_t permission, int isLink, int socket, int shift) {
-    tcp_content info;
+    tcp_content *info = (tcp_content*)malloc(sizeof(tcp_content) + 1);
+    if (!info) error(socket, 1, "Memory allocation overflow error\n");
     char path_trim[256];
     mod_path(origin, dest, file, path_trim, shift);
-    strcpy(info.filename, path_trim);
+    strcpy(info->filename, path_trim);
     //strcpy(info.content, "\n");
-    info.content = '\n';
-    info.permission = permission;
+    info->content = '\n';
+    info->permission = permission;
 
     if (isLink == 1) {
-        info.file_type = '~';
+        info->file_type = '~';
         char buf[PATH_MAX + 1];
         char base[PATH_MAX + 1];
         char basetest[PATH_MAX + 1];
         realpath(file, buf);
         char *baseline = realpath("./", base);
         char *baseline2 = realpath(src, basetest);
-        strcpy(info.ln_filename, &buf[strlen(baseline2)]);
+        strcpy(info->ln_filename, &buf[strlen(baseline2)]);
         printf("Base path is -> %s\n", &buf[strlen(baseline)]);
         printf("symlink path is -> %s\n", file);
         printf("Baseline path for file -> %s\n", buf);
         printf("Baseline path for src -> %s\n", baseline2);
         printf("Relative path -> %s\n", &buf[strlen(baseline2)]);
     } else {
-        info.file_type = 'd';
-        strcpy(info.ln_filename, "\0");
+        info->file_type = 'd';
+        strcpy(info->ln_filename, "\0");
     }
-
-    transmission_error(tcp_package(socket, (tcp_content *)&info, sizeof(tcp_content), 0, 0), socket);
+    transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
+    free(info);
 }
 
-void listdir(int socket, int shift, const char *origin, const char *name, char *dest, int indent) {
+void listdir(int socket, int shift, const char *origin, const char *name, char *dest) {
+    static int indent = 0;
     DIR *dir;
     struct dirent *entry;
     if (!(dir = opendir(name))) return;
@@ -271,6 +279,7 @@ void listdir(int socket, int shift, const char *origin, const char *name, char *
     }
     closedir(dir);
 
+    indent += 2;
     if (!(dir = opendir(name))) return;
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type == DT_DIR) {
@@ -288,7 +297,7 @@ void listdir(int socket, int shift, const char *origin, const char *name, char *
             if (!(S_ISLNK(statRes.st_mode) || !S_ISDIR(statRes.st_mode))) {
                 tcp_directory(t, origin, name, dest, statRes.st_mode, 0, socket, shift);
                 printf("%*s%s\n", indent, "", &t_tag[2]);
-                listdir(socket, shift, origin, t_tag, dest, indent + 2);
+                listdir(socket, shift, origin, t_tag, dest);
             } else if (!(!S_ISLNK(statRes.st_mode) || S_ISDIR(statRes.st_mode))) {
                 tcp_directory(t, origin, name, dest, statRes.st_mode, 1, socket, shift);
                 printf("%*s~%s\n", indent, "", &t_tag[2]);
@@ -296,7 +305,7 @@ void listdir(int socket, int shift, const char *origin, const char *name, char *
             free(t), free(t_tag);
         }
     }
-    closedir(dir);
+    closedir(dir); indent -= 2;
 }
 
 void relayer(int socket) {
@@ -347,13 +356,15 @@ int main(int argc, char *argv[]) {
     strcat(origin, "/");
 
     int sockfd = connect_tcp(argv[1], argv[2]);
-    repo_tcp info_dir;
-    strcpy(info_dir.client_repo, package_path);
-    strcpy(info_dir.origin, origin);
-    info_dir.permission = 0777;
-    transmission_error(tcp_package(sockfd, (repo_tcp *)&info_dir, sizeof(repo_tcp), 0, 1), sockfd);
+    repo_tcp *info_dir = (repo_tcp*)malloc(sizeof(repo_tcp) + 1);
+    if (!info_dir) error(sockfd, 1, "Memory allocation overflow error\n");
+    strcpy(info_dir->client_repo, package_path);
+    strcpy(info_dir->origin, origin);
+    info_dir->permission = 0777;
+    transmission_error(tcp_package(sockfd, info_dir, sizeof(repo_tcp), 0, 1), sockfd);
+    free(info_dir);
 
-    listdir(sockfd, index + 1, origin, ref_path, package_path, 0);
+    listdir(sockfd, index + 1, origin, ref_path, package_path);
     end_tcp(sockfd);
     //relayer(sockfd);
 

@@ -16,7 +16,7 @@ void closeBufferStream(FILE **p);
 int tcp_package(int socket, void *package, size_t length, int flag, int type);
 void transfer_file(char *file, const char *origin, const char *src, char *dest, mode_t permission, int socket, int shift);
 void tcp_directory(char *file, const char *origin, const char *src, char *dest, mode_t permission, int isLink, int socket, int shift);
-void listdir(int socket, int shift, const char *origin, const char *name, char *dest, int indent);
+void listdir(int socket, int shift, const char *origin, const char *name, char *dest);
 void relayer(int socket);
 char *concat(const char *s1, const char *s2);
 int connect_tcp(char *host, char *port);

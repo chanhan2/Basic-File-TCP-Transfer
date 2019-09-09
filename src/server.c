@@ -79,9 +79,14 @@ int compareHash(char *hash_f1, char *hash_f2) {
 }
 
 void packageReply(int socket, char command) {
-    tcp_content package_call;
-    package_call.command = command;
-    transmission_error(tcp_package(socket, (tcp_content *)&package_call, sizeof(tcp_content), 0), socket);
+    tcp_content *package_call = (tcp_content*)malloc(sizeof(tcp_content) + 1);
+    if (!package_call) {
+        perror("Memory allocation overflow error\n");
+        return;
+    }
+    package_call->command = command;
+    transmission_error(tcp_package(socket, package_call, sizeof(tcp_content), 0), socket);
+    free(package_call);
 }
 
 int update_file_permission(char *file, mode_t permission) {
@@ -165,23 +170,37 @@ void closeBufferStream(FILE **p) {
 }
 
 void saveFile (int socket) {
-    tcp_content *info = (tcp_content*)malloc(sizeof(tcp_content) + 1);
-    repo_tcp client_repo_tcp;
-    int nbytes = 0;
-    FILE *t = NULL;
+    repo_tcp *client_repo_tcp = (repo_tcp*)malloc(sizeof(repo_tcp) + 1);
+    if (!client_repo_tcp) {
+        packageReply(socket, 'E');
+        perror("Memory allocation overflow error\n");
+        return;
+    }
 
-    while (((nbytes += recv(socket, (repo_tcp *)&client_repo_tcp, sizeof(repo_tcp), 0)) > 0) && (nbytes != sizeof(repo_tcp)));
+    int nbytes = 0;
+    while (((nbytes += recv(socket, client_repo_tcp, sizeof(repo_tcp), 0)) > 0) && (nbytes != sizeof(repo_tcp)));
     if (nbytes != sizeof(repo_tcp)) {
         error("Could not recieve message request from client: ");
     } else {
         struct stat st;
-        if (stat(client_repo_tcp.client_repo, &st) == -1) mkdir(client_repo_tcp.client_repo, client_repo_tcp.permission);
+        if (stat(client_repo_tcp->client_repo, &st) == -1) mkdir(client_repo_tcp->client_repo, client_repo_tcp->permission);
         char origin_repo[PATH_MAX + 1];
-        strcpy(origin_repo, client_repo_tcp.client_repo);
-        strcat(origin_repo, client_repo_tcp.origin);
-        if (stat(origin_repo, &st) == -1) mkdir(origin_repo, client_repo_tcp.permission);
+        strcpy(origin_repo, client_repo_tcp->client_repo);
+        strcat(origin_repo, client_repo_tcp->origin);
+        if (stat(origin_repo, &st) == -1) {
+            printf("Transferring '%s' to '%s'\n", client_repo_tcp->origin, client_repo_tcp->client_repo);
+            mkdir(origin_repo, client_repo_tcp->permission);
+        }
     }
+    free(client_repo_tcp);
 
+    tcp_content *info = (tcp_content*)malloc(sizeof(tcp_content) + 1);
+    if (!info) {
+        packageReply(socket, 'E');
+        perror("Memory allocation overflow error\n");
+        return;
+    }
+    FILE *t = NULL;
     while ((info->command != 'Q')) {
         int file_size = 0;
         while (((file_size += recv(socket, info, sizeof(tcp_content), 0)) > 0) && (file_size != sizeof(tcp_content)));
@@ -191,7 +210,6 @@ void saveFile (int socket) {
         }
         if (info->file_type == '_') {
             struct stat statRes;
-            
             if (lstat(info->filename, &statRes) == 0) {
                 FILE *fp = fopen(info->filename, "rb");
                 char *file_hash = hash(fp);
@@ -214,13 +232,15 @@ void saveFile (int socket) {
             if (update_file_permission(info->filename, info->permission) == 0) break;
         } else if (info->file_type == 'd') {
             struct stat st;
-            if (stat(info->filename, &st) == -1) mkdir(info->filename, info->permission);
+            if (stat(info->filename, &st) == -1) {
+                mkdir(info->filename, info->permission);
+                printf("Transferring directory '%s'\n", info->filename);
+            }
         } else if (info->file_type == '~') {
             printf("Linking %s to %s as a symlink\n", info->filename, info->ln_filename);
             if (link_symlink(info->ln_filename, info->filename, 3) == 1) {
                 printf("Linked %s to %s as a symlink\n", info->filename, info->ln_filename);
             } else printf("Could not linked %s to %s as a symlink\n", info->filename, info->ln_filename);
-            if (update_file_permission(info->ln_filename, info->permission) == 0) break;
         } else if (info->file_type == ' ') {
             closeBufferStream(&t);
             printf("Finished file transfer for %s\n", info->filename);
