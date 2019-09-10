@@ -51,7 +51,7 @@ int start_tcp_server(char *port) {
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
     serv_addr.sin_port = htons(portno);
-    printf("Listening on %d\n", portno);
+    printf("Listening on %d\n\n", portno);
 
     if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1) {
         perror("bind: ");
@@ -81,7 +81,7 @@ int compareHash(char *hash_f1, char *hash_f2) {
 void packageReply(int socket, char command) {
     tcp_content *package_call = (tcp_content*)malloc(sizeof(tcp_content) + 1);
     if (!package_call) {
-        perror("Memory allocation overflow error\n");
+        perror("Memory allocation overflow error: \n");
         return;
     }
     package_call->command = command;
@@ -169,11 +169,11 @@ void closeBufferStream(FILE **p) {
     fclose(*p), *p = NULL;
 }
 
-void saveFile (int socket) {
+void directory_storage(int socket) {
     repo_tcp *client_repo_tcp = (repo_tcp*)malloc(sizeof(repo_tcp) + 1);
     if (!client_repo_tcp) {
         packageReply(socket, 'E');
-        perror("Memory allocation overflow error\n");
+        perror("Memory allocation overflow error: \n");
         return;
     }
 
@@ -183,24 +183,42 @@ void saveFile (int socket) {
         error("Could not recieve message request from client: ");
     } else {
         struct stat st;
-        if (stat(client_repo_tcp->client_repo, &st) == -1) mkdir(client_repo_tcp->client_repo, client_repo_tcp->permission);
+        if (stat(client_repo_tcp->client_repo, &st) == -1) {
+            printf("Creating new server side client directory '%s'\n", client_repo_tcp->client_repo);
+            if (mkdir(client_repo_tcp->client_repo, client_repo_tcp->permission) == -1) { 
+                packageReply(socket, 'E');
+                perror("Could not create directory: \n");
+                return;
+            }
+        } else printf("Updating server side client directory '%s'\n", client_repo_tcp->client_repo);
         char origin_repo[PATH_MAX + 1];
         strcpy(origin_repo, client_repo_tcp->client_repo);
         strcat(origin_repo, client_repo_tcp->origin);
         if (stat(origin_repo, &st) == -1) {
+            printf("Creating new server side directory '%s' in '%s'\n\n", client_repo_tcp->origin, client_repo_tcp->client_repo);
             printf("Transferring '%s' to '%s'\n", client_repo_tcp->origin, client_repo_tcp->client_repo);
-            mkdir(origin_repo, client_repo_tcp->permission);
-        }
+            if (mkdir(origin_repo, client_repo_tcp->permission) == -1) {
+                packageReply(socket, 'E');
+                perror("Could not create directory: \n");
+                return;
+            }
+        } else printf("Updating server side directory on '%s'\n\n", origin_repo);
+        packageReply(socket, 'S');
     }
     free(client_repo_tcp);
+}
 
-    tcp_content *info = (tcp_content*)malloc(sizeof(tcp_content) + 1);
-    if (!info) {
+void saveFile (int socket) {
+    directory_storage(socket);
+
+    tcp_content *info;
+    if (!(info = (tcp_content*)malloc(sizeof(tcp_content) + 1))) {
         packageReply(socket, 'E');
-        perror("Memory allocation overflow error\n");
+        perror("Memory allocation overflow error: \n");
         return;
     }
     FILE *t = NULL;
+
     while ((info->command != 'Q')) {
         int file_size = 0;
         while (((file_size += recv(socket, info, sizeof(tcp_content), 0)) > 0) && (file_size != sizeof(tcp_content)));
@@ -251,7 +269,7 @@ void saveFile (int socket) {
         }
     }
     if (info->command == 'Q') {
-        printf("*\n*\n*\nCompleted client request\n");
+        printf("*\n*\n*\nCompleted client request\n\n");
         packageReply(socket, 'C');
     } else {
         printf("TRANSMIT_ERROR\n");

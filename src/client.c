@@ -260,7 +260,6 @@ void listdir(int socket, int shift, const char *origin, const char *name, char *
         if (entry->d_type != DT_DIR) {
             char *file = concat(name, entry->d_name);
             struct stat statRes;
-
             if (lstat(file, &statRes) < 0) {
                 printf("ERROR: File stat is cannot be accessed for file %s.\n", file);
                 free(file);
@@ -284,10 +283,10 @@ void listdir(int socket, int shift, const char *origin, const char *name, char *
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type == DT_DIR) {
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+
             char *t = concat(name, entry->d_name);
             char *t_tag = concat(t, "/");
             struct stat statRes;
-
             if (lstat(t, &statRes) < 0) {
                 printf("ERROR: F stat is cannot be accessed for directory %s.\n", t);
                 free(t), free(t_tag);
@@ -363,6 +362,9 @@ int main(int argc, char *argv[]) {
     info_dir->permission = 0777;
     transmission_error(tcp_package(sockfd, info_dir, sizeof(repo_tcp), 0, 1), sockfd);
     free(info_dir);
+
+    char replay = get_server_replay(sockfd);
+    if (replay == 'E' || replay == '?') connection_error("Server could not allocate space for directory: \n");
 
     listdir(sockfd, index + 1, origin, ref_path, package_path);
     end_tcp(sockfd);

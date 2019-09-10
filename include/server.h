@@ -8,6 +8,7 @@ void error(const char *msg);
 int start_tcp_server(char *port);
 void relay_message(int socket);
 void closeBufferStream(FILE **p);
+void directory_storage(int socket);
 void saveFile (int socket);
 void packageReply(int socket, char command);
 int update_file_permission(char *file, mode_t permission);
