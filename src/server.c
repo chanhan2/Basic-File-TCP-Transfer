@@ -5,7 +5,7 @@
 /* C library */
 #include <limits.h>
 #include <fcntl.h>
-#include <stdbool.h>
+/* #include <stdbool.h> // performance of data structure is unknown/untested */
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -65,6 +65,20 @@ int start_tcp_server(char *port) {
     return sockfd;
 }
 
+tcp_content *get_package_content_replay(int socket, tcp_content *package_reply) {
+    int nbytes = 0;
+    if (!package_reply) error("Memory allocation overflow error\n");
+    while (((nbytes += recv(socket, package_reply, sizeof(tcp_content), 0)) > 0) && (nbytes != sizeof(tcp_content)));
+    return (nbytes == sizeof(tcp_content)) ? package_reply : NULL;
+}
+
+repo_tcp *get_package_repo_replay(int socket, repo_tcp *package_reply) {
+    int nbytes = 0;
+    if (!package_reply) error("Memory allocation overflow error\n");
+    while (((nbytes += recv(socket, package_reply, sizeof(repo_tcp), 0)) > 0) && (nbytes != sizeof(repo_tcp)));
+    return (nbytes == sizeof(repo_tcp)) ? package_reply : NULL;
+}
+
 int length(char *array) {
     int size = 0;
     while(array && array[size] != '\0') size++;
@@ -73,8 +87,7 @@ int length(char *array) {
 
 int compareHash(char *hash_f1, char *hash_f2) {
     int i;
-    for (i = 0; i < HASH_SIZE; i++)
-        if (hash_f1[i] != hash_f2[i]) break;
+    for (i = 0; i < HASH_SIZE; i++) if (hash_f1[i] != hash_f2[i]) break;
     return i == HASH_SIZE;
 }
 
@@ -133,14 +146,14 @@ int tcp_package(int socket, void *package, size_t length, int flag) {
     return 1;
 }
 
-bool send_package(int socket, void *buffer, size_t length) {
+int send_package(int socket, void *buffer, size_t length) {
     char *ptr = (char*) buffer;
     while (length > 0) {
         int i = send(socket, ptr, length, 0);
-        if (i < 1) return false;
+        if (i < 1) return 0;
         ptr += i, length -= i;
     }
-    return true;
+    return 1;
 }
 
 void relay_message (int socket) {
@@ -159,7 +172,7 @@ void relay_message (int socket) {
 
     int i;
     for (i = 0; i < 5; i++) {
-        bool b = (i != 4) ? send_package(socket,"I got your message",18) : send_package(socket,"Final ending...",15);
+        int b = (i != 4) ? send_package(socket,"I got your message",18) : send_package(socket,"Final ending...",15);
         if (!b) error("ERROR writing to socket: ");
         printf("something happened\n");
     }
@@ -177,9 +190,7 @@ void directory_storage(int socket) {
         return;
     }
 
-    int nbytes = 0;
-    while (((nbytes += recv(socket, client_repo_tcp, sizeof(repo_tcp), 0)) > 0) && (nbytes != sizeof(repo_tcp)));
-    if (nbytes != sizeof(repo_tcp)) {
+    if (!get_package_repo_replay(socket, client_repo_tcp)) {
         error("Could not recieve message request from client: ");
     } else {
         struct stat st;
@@ -210,19 +221,16 @@ void directory_storage(int socket) {
 
 void saveFile (int socket) {
     directory_storage(socket);
-
     tcp_content *info;
     if (!(info = (tcp_content*)malloc(sizeof(tcp_content) + 1))) {
         packageReply(socket, 'E');
         perror("Memory allocation overflow error: \n");
         return;
     }
-    FILE *t = NULL;
 
+    FILE *t = NULL;
     while ((info->command != 'Q')) {
-        int file_size = 0;
-        while (((file_size += recv(socket, info, sizeof(tcp_content), 0)) > 0) && (file_size != sizeof(tcp_content)));
-        if (info->file_type == 'E' || file_size != sizeof(tcp_content)) {
+        if (!get_package_content_replay(socket, info) || info->file_type == 'E') {
             printf("Connection with client is terminated, due to some interruption.\n");
             break;
         }
@@ -233,7 +241,7 @@ void saveFile (int socket) {
                 char *file_hash = hash(fp);
                 closeBufferStream(&fp);
                 if (compareHash(info->hash, file_hash) && (info->size == statRes.st_size)) {
-                    printf("skip package update for pagekage '%s'\n", info->filename);
+                    printf("skip package update for file '%s'\n", info->filename);
                     packageReply(socket, 'S');
                     continue;
                 } else {
@@ -251,8 +259,16 @@ void saveFile (int socket) {
         } else if (info->file_type == 'd') {
             struct stat st;
             if (stat(info->filename, &st) == -1) {
-                mkdir(info->filename, info->permission);
+                if (mkdir(info->filename, info->permission) == -1) {
+                    printf("Could not transfer directory '%s'\n", info->filename);
+                    packageReply(socket, 'E');
+                    continue;
+                }
                 printf("Transferring directory '%s'\n", info->filename);
+                packageReply(socket, 'S');
+            } else {
+                printf("Updating directory '%s'\n", info->filename);
+                packageReply(socket, 'S');
             }
         } else if (info->file_type == '~') {
             printf("Linking %s to %s as a symlink\n", info->filename, info->ln_filename);
@@ -272,7 +288,7 @@ void saveFile (int socket) {
         printf("*\n*\n*\nCompleted client request\n\n");
         packageReply(socket, 'C');
     } else {
-        printf("TRANSMIT_ERROR\n");
+        printf("TRANSMIT_ERROR\n\n");
         packageReply(socket, 'E');
     }
     free(info);

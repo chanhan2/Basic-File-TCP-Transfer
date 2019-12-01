@@ -5,10 +5,10 @@
 /* C library */
 #include <limits.h>
 #include <fcntl.h>
-#include <stdbool.h>
+/* #include <stdbool.h> // performance of data structure is unknown/untested */
 #include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -57,7 +57,12 @@ void transmission_error(int check, int sockfd) {
     }
 }
 
-void connection_error(const char *msg) {
+void service_error(const char *msg) {
+    printf("%s\n", msg);
+    exit(0);
+}
+
+void connection_server_error(const char *msg) {
     perror(msg);
     exit(0);
 }
@@ -67,26 +72,26 @@ int connect_tcp(char *host, char *port) {
     struct hostent *server;
     int portno = atoi(port), sockfd;
 
-    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) connection_error("Client opening socket error: ");
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) connection_server_error("Client opening socket error: ");
 
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(portno);
 
-    if (inet_pton(AF_INET, host, &serv_addr.sin_addr) < 1) connection_error("Client inet_pton error: ");
+    if (inet_pton(AF_INET, host, &serv_addr.sin_addr) < 1) connection_server_error("Client inet_pton error: ");
 
-    if ((server = gethostbyname(host)) == NULL) connection_error("Client no such host error: ");
+    if ((server = gethostbyname(host)) == NULL) connection_server_error("Client no such host error: ");
 
     bzero((char *) &serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
     serv_addr.sin_port = htons(portno);
 
-    if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) connection_error("Client Connection error: ");
+    if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) connection_server_error("Client Connection error: ");
 
     return sockfd;
 }
 
-char get_server_replay(int socket){
+char get_server_replay(int socket) {
     int nbytes = 0;
     tcp_content *package_call = (tcp_content*)malloc(sizeof(tcp_content) + 1);
     if (!package_call) error(socket, 1, "Memory allocation overflow error\n");
@@ -108,7 +113,7 @@ void end_tcp(int sockfd) {
 
     char reply = get_server_replay(sockfd);
     if (reply == 'C') printf("TRANSMIT_OK\n");
-    else if (reply == 'E') printf("TRANSMIT_ERROR:\nFailure to successfully upload files");
+    else if (reply == 'E') printf("TRANSMIT_ERROR:\nFailure to upload files");
     else printf("Lost connection to server...\n");
 }
 
@@ -133,8 +138,7 @@ void file_signature(char *file, char *dest) {
 
 void copyHash(char *array, char *hash) {
     int i;
-    for (i = 0; i < HASH_SIZE; i++)
-        array[i] = hash[i];
+    for (i = 0; i < HASH_SIZE; i++) array[i] = hash[i];
 }
 
 char *concat(const char *s1, const char *s2) {
@@ -149,6 +153,10 @@ void closeBufferStream(FILE **p) {
 }
 
 void transfer_file(char *file, const char *origin, const char *src, char *dest, mode_t permission, int socket, int shift) {
+    /**
+        ToDo: Check server status reply before continuing with I/O, followed by package construction and emitting package
+    **/
+
     struct stat statRes;
     if (lstat(file, &statRes) < 0) {
         printf("ERROR: File stat is cannot be accessed for file %s.\n", file);
@@ -218,6 +226,10 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
 }
 
 void tcp_directory(char *file, const char *origin, const char *src, char *dest, mode_t permission, int isLink, int socket, int shift) {
+    /**
+        ToDo: Check server status reply before continuing with I/O, followed by package construction and emitting package
+    **/
+
     tcp_content *info = (tcp_content*)malloc(sizeof(tcp_content) + 1);
     if (!info) error(socket, 1, "Memory allocation overflow error\n");
     char path_trim[256];
@@ -243,25 +255,30 @@ void tcp_directory(char *file, const char *origin, const char *src, char *dest, 
         printf("Relative path -> %s\n", &buf[strlen(baseline2)]);
     } else {
         info->file_type = 'd';
-        strcpy(info->ln_filename, "\0");
+        strcpy(info->ln_filename, "");
     }
     transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
     free(info);
+
+    char replay = get_server_replay(socket);
+    if (replay == 'E') service_error("Cannot transfer directory to current directory due to service error or terminated service\n");
+    else if (replay == '?') connection_server_error("Cannot transfer directory to current directory due to terminated server communication\n");
 }
 
 void listdir(int socket, int shift, const char *origin, const char *name, char *dest) {
     static int indent = 0;
     DIR *dir;
     struct dirent *entry;
-    if (!(dir = opendir(name))) return;
-    printUseless(indent);
 
+    if (!(dir = opendir(name))) return;
+    if (strcmp(name, "./") == 0) printf("%*s%s\n", indent, "", name); else printf("%*s%s\n", indent, "", &name[2]);
+    indent += 2, printUseless(indent);
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type != DT_DIR) {
             char *file = concat(name, entry->d_name);
             struct stat statRes;
             if (lstat(file, &statRes) < 0) {
-                printf("ERROR: File stat is cannot be accessed for file %s.\n", file);
+                printf("ERROR: stat is cannot be accessed for file %s.\n", file);
                 free(file);
                 continue;
             }
@@ -278,7 +295,6 @@ void listdir(int socket, int shift, const char *origin, const char *name, char *
     }
     closedir(dir);
 
-    indent += 2;
     if (!(dir = opendir(name))) return;
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type == DT_DIR) {
@@ -288,18 +304,17 @@ void listdir(int socket, int shift, const char *origin, const char *name, char *
             char *t_tag = concat(t, "/");
             struct stat statRes;
             if (lstat(t, &statRes) < 0) {
-                printf("ERROR: F stat is cannot be accessed for directory %s.\n", t);
+                printf("ERROR: stat is cannot be accessed for directory %s.\n", t);
                 free(t), free(t_tag);
                 continue;
             }
 
             if (!(S_ISLNK(statRes.st_mode) || !S_ISDIR(statRes.st_mode))) {
                 tcp_directory(t, origin, name, dest, statRes.st_mode, 0, socket, shift);
-                printf("%*s%s\n", indent, "", &t_tag[2]);
                 listdir(socket, shift, origin, t_tag, dest);
             } else if (!(!S_ISLNK(statRes.st_mode) || S_ISDIR(statRes.st_mode))) {
                 tcp_directory(t, origin, name, dest, statRes.st_mode, 1, socket, shift);
-                printf("%*s~%s\n", indent, "", &t_tag[2]);
+                listdir(socket, shift, origin, t_tag, dest);
             }
             free(t), free(t_tag);
         }
@@ -309,7 +324,6 @@ void listdir(int socket, int shift, const char *origin, const char *name, char *
 
 void relayer(int socket) {
     char buffer[256];
-
     printf("Please enter the message: ");
     bzero(buffer,256);
     fgets(buffer,255,stdin);
@@ -364,7 +378,7 @@ int main(int argc, char *argv[]) {
     free(info_dir);
 
     char replay = get_server_replay(sockfd);
-    if (replay == 'E' || replay == '?') connection_error("Server could not allocate space for directory: \n");
+    if (replay == 'E' || replay == '?') connection_server_error("Server could not allocate space for directory: \n");
 
     listdir(sockfd, index + 1, origin, ref_path, package_path);
     end_tcp(sockfd);

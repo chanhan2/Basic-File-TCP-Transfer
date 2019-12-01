@@ -14,8 +14,7 @@
 
 char *hash(FILE *f) {
     char *hash_val = (char*)malloc(sizeof(char) * MAX_BLOCK_SIZE);
-    int i;
-    for (i = 0; i < MAX_BLOCK_SIZE; i++) hash_val[i] = '\0';
+    for (int i = 0; i < MAX_BLOCK_SIZE; i++) hash_val[i] = '\0';
 
     char c;
     int place = 0;
