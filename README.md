@@ -3,6 +3,7 @@
     specific directory.
 
 ## ToDo (Top-down Order)
+    - Pull directory/file from server
     - Updating metadata of inode based on the client working directory to server directory (in working)
     - error checks on system calls and on failures (in working)
     - detecting TCP transmission failure and relay handling accordingly from client/server (in working)
