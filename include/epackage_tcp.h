@@ -66,12 +66,12 @@ int connect_tcp(char *host, int port) {
 
     if ((server = gethostbyname(host)) == NULL) connection_error("Client no such host error: ");
 
-    bzero((char *) &serv_addr, sizeof(serv_addr));
+    bzero((char*)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
+    bcopy((char*)server->h_addr, (char*)&serv_addr.sin_addr.s_addr, server->h_length);
     serv_addr.sin_port = htons(portno);
 
-    if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0) connection_error("Client Connection error: ");
+    if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) connection_error("Client Connection error: ");
 
     return sockfd;
 }
@@ -160,6 +160,7 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
     info->content = '\n';
     info->permission = permission;
     info->size = statRes.st_size;
+    info->inodeInfo = statRes;
 
     if (isLink == 1) {
         char buf[PATH_MAX + 1];

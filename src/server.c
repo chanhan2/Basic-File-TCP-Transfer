@@ -12,7 +12,7 @@ int main(int argc, char *argv[]) {
 
     clilen = sizeof(cli_addr);
     while (1) {
-        newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+        newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
         if (newsockfd < 0) perror("ERROR on accept: ");
         pid = fork();
         if (pid < 0) perror("ERROR on fork: ");

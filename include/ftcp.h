@@ -2,6 +2,8 @@
 #define _TCP_
 
 /* C library */
+#include <time.h>
+#include <utime.h>
 #include <string.h>
 #include <stdio.h>
 #include <limits.h>

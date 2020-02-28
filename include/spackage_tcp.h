@@ -21,6 +21,7 @@ int update_file_permission(char *file, mode_t permission);
 int send_package(int socket, void *buffer, size_t length);
 int symlink_resolve(char *file, char *symlink, int tries);
 int link_symlink(char *file, char *symlink, int tries);
+void updateInodeMetadata(struct stat info, const char *filename);
 int length(char *array);
 int compareHash(char *hash_f1, char *hash_f2);
 
@@ -52,7 +53,7 @@ int start_tcp_server(int port) {
     serv_addr.sin_port = htons(portno);
     printf("Listening on %d\n\n", portno);
 
-    if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1) {
+    if (bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1) {
         perror("bind: ");
         exit(1);
     }
@@ -107,7 +108,7 @@ repo_tcp *get_package_repo_replay(int socket, repo_tcp *package_reply) {
 
 int length(char *array) {
     int size = 0;
-    while(array && array[size] != '\0') size++;
+    while (array && array[size] != '\0') size++;
     return size;
 }
 
@@ -161,6 +162,20 @@ int link_symlink(char *pathname, char *slink, int tries) {
     return 1;
 }
 
+void updateInodeMetadata(struct stat info, const char *filename) {
+    if (S_ISLNK(info.st_mode)) {
+        printf("No need to update meta-date inode times for link: %s\n", filename);
+        return;
+    }
+
+    struct utimbuf inodeInfo;
+    inodeInfo.modtime = info.st_mtime;
+    inodeInfo.actime = info.st_atime;
+
+    if (utime(filename, &inodeInfo) == 0) printf("Successfully updated meta-data inode times for %s\n", filename);
+    else printf("Failure upon updating meta-data inode times for %s\n", filename);
+}
+
 int send_package(int socket, void *buffer, size_t length) {
     char *ptr = (char*) buffer;
     while (length > 0) {
@@ -169,28 +184,6 @@ int send_package(int socket, void *buffer, size_t length) {
         ptr += i, length -= i;
     }
     return 1;
-}
-
-void relay_message (int socket) {
-    char buffer[256];
-    bzero(buffer,256);
-    int count = 0, total = 0;
-
-    while (((count = recv(socket, &buffer[total], (sizeof(buffer)) - count, 0)) > 0)) {
-        printf("Message has %d bytes and the content is: %s \n", count, &buffer[total]);
-        total += count;
-        if (!(strcmp(&buffer[total], "endo") == 0) && (total == sizeof(buffer))) break;
-    }
-
-    if (count < 0) connection_error("ERROR reading from socket: ");
-    printf("Here is the message: %s\n",buffer);
-
-    int i;
-    for (i = 0; i < 5; i++) {
-        int b = (i != 4) ? send_package(socket,"I got your message",18) : send_package(socket,"Final ending...",15);
-        if (!b) connection_error("ERROR writing to socket: ");
-        printf("something happened\n");
-    }
 }
 
 void closeBufferStream(FILE **p) {
@@ -292,6 +285,7 @@ void saveFile (int socket) {
             } else printf("Could not linked %s to %s as a symlink\n", info->filename, info->ln_filename);
         } else if (info->file_type == ' ') {
             closeBufferStream(&inode);
+            updateInodeMetadata(info->inodeInfo, info->filename);
             printf("Finished file transfer for %s\n", info->filename);
         } else if (info->file_type == 'f') {
             decryptContent(&info->content, info->content_size);
@@ -308,6 +302,28 @@ void saveFile (int socket) {
         packageReply(socket, 'E');
         free(info);
         exit(0);
+    }
+}
+
+void relay_message (int socket) {
+    char buffer[256];
+    bzero(buffer,256);
+    int count = 0, total = 0;
+
+    while (((count = recv(socket, &buffer[total], (sizeof(buffer)) - count, 0)) > 0)) {
+        printf("Message has %d bytes and the content is: %s \n", count, &buffer[total]);
+        total += count;
+        if (!(strcmp(&buffer[total], "endo") == 0) && (total == sizeof(buffer))) break;
+    }
+
+    if (count < 0) connection_error("ERROR reading from socket: ");
+    printf("Here is the message: %s\n",buffer);
+
+    int i;
+    for (i = 0; i < 5; i++) {
+        int b = (i != 4) ? send_package(socket,"I got your message",18) : send_package(socket,"Final ending...",15);
+        if (!b) connection_error("ERROR writing to socket: ");
+        printf("something happened\n");
     }
 }
 
