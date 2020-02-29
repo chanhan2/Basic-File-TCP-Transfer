@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
     transmission_error(tcp_package(sockfd, info_dir, sizeof(repo_tcp), 0, 1), sockfd);
     free(info_dir);
 
-    char replay = get_server_replay(sockfd);
+    char replay = get_replay(sockfd);
     if (replay == 'E' || replay == '?') connection_error("Server could not allocate space for directory: \n");
 
     listdir(sockfd, index + 1, origin, ref_path, package_path);

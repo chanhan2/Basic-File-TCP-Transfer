@@ -1,6 +1,9 @@
 #ifndef _HASH_H_
 #define _HASH_H_
 
+/* C library */
+#include <stdio.h>
+
 #ifndef HASH_SIZE
   #define HASH_SIZE 8
 #endif  // HASH_SIZE

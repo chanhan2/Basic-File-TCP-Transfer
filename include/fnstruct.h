@@ -1,6 +1,9 @@
 #ifndef _FNSTRUCT_
 #define _FNSTRUCT_
 
+/* external library */
+#include "hash.h"
+
 /* Package/Data Structures */
 typedef struct {
     char client_repo[256];
@@ -16,8 +19,6 @@ typedef struct {
     char content;
     char ln_filename[256];
     int content_size;
-    mode_t permission;
-    size_t size;
     char hash[HASH_SIZE];
     struct stat inodeInfo;
 } tcp_content;

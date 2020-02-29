@@ -2,6 +2,10 @@
     A simple TCP connection between client to server, where the client uploads files from a
     specific directory.
 
+## Currently working on
+    Re-designing flow layout for handling pre-processed information in relation to memory
+    usage and computation usage.
+
 ## ToDo (Top-down Order)
     - Pull directory/file from server
     - Updating metadata of inode based on the client working directory to server directory (in working)
