@@ -26,7 +26,6 @@
 /* 
     TCP functions for recieving and collecting package contents
 */
-
 int start_tcp_server(int port) {
     int sockfd, portno;
     struct sockaddr_in serv_addr;
@@ -72,9 +71,11 @@ void transmission_error(int check, int sockfd) {
 /* need to check for transmission -- buggy */
 int tcp_package(int socket, void *package, size_t length, int flag, int type) {
     tcp_content *file_ptr;
-    repo_tcp *dir_ptr;
+    tcp_repo *dir_ptr;
+    request *req_ptr;
     if (type == 0) file_ptr = (tcp_content*)package;
-    else dir_ptr = (repo_tcp*)package;
+    else if (type == 1) dir_ptr = (tcp_repo*)package;
+    else req_ptr = (request*)package;
     while (length > 0 && type == 0) {
         int i = send(socket, file_ptr, length, flag);
         if (i < 1) return -1;
@@ -85,21 +86,36 @@ int tcp_package(int socket, void *package, size_t length, int flag, int type) {
         if (i < 1) return -1;
         dir_ptr += i, length -= i;
     }
+    while (length > 0 && type == 2) {
+        int i = send(socket, req_ptr, length, flag);
+        if (i < 1) return -1;
+        dir_ptr += i, length -= i;
+    }
     return 1;
 }
 
 tcp_content *get_package_content_replay(int socket, tcp_content *package_reply) {
+    if (!package_reply) operation_error("Memory allocation overflow error\n");
+
     int nbytes = 0;
-    if (!package_reply) connection_error("Memory allocation overflow error\n");
     while (((nbytes += recv(socket, package_reply, sizeof(tcp_content), 0)) > 0) && (nbytes != sizeof(tcp_content)));
     return (nbytes == sizeof(tcp_content)) ? package_reply : NULL;
 }
 
-repo_tcp *get_package_repo_replay(int socket, repo_tcp *package_reply) {
+tcp_repo *get_package_repo_replay(int socket, tcp_repo *package_reply) {
+    if (!package_reply) operation_error("Memory allocation overflow error\n");
+
     int nbytes = 0;
-    if (!package_reply) connection_error("Memory allocation overflow error\n");
-    while (((nbytes += recv(socket, package_reply, sizeof(repo_tcp), 0)) > 0) && (nbytes != sizeof(repo_tcp)));
-    return (nbytes == sizeof(repo_tcp)) ? package_reply : NULL;
+    while (((nbytes += recv(socket, package_reply, sizeof(tcp_repo), 0)) > 0) && (nbytes != sizeof(tcp_repo)));
+    return (nbytes == sizeof(tcp_repo)) ? package_reply : NULL;
+}
+
+request *get_package_request_replay(int socket, request *package_reply) {
+    if (!package_reply) operation_error("Memory allocation overflow error\n");
+
+    int nbytes = 0;
+    while (((nbytes += recv(socket, package_reply, sizeof(request), 0)) > 0) && (nbytes != sizeof(request)));
+    return (nbytes == sizeof(request)) ? package_reply : NULL;
 }
 
 int length(char *array) {
@@ -108,13 +124,13 @@ int length(char *array) {
     return size;
 }
 
-int compareHash(char *hash_f1, char *hash_f2) {
+int compare_hash(char *hash_f1, char *hash_f2) {
     int i;
     for (i = 0; i < HASH_SIZE; i++) if (hash_f1[i] != hash_f2[i]) break;
     return i == HASH_SIZE;
 }
 
-void packageReply(int socket, char command) {
+void package_reply(int socket, const char command) {
     tcp_content *package_call = (tcp_content*)malloc(sizeof(tcp_content) + 1);
     if (!package_call) {
         perror("Memory allocation overflow error: \n");
@@ -125,16 +141,29 @@ void packageReply(int socket, char command) {
     free(package_call);
 }
 
-int update_file_permission(char *file, mode_t permission) {
-    if (chmod(file, permission) < 0) {
-        printf("rip in aids again my friend\n");
-        printf("Error on file -> %s\n", file);
+void close_buffer_stream(FILE **p) {
+    fclose(*p), *p = NULL;
+}
+
+int update_file(const char content, FILE *inodeFd) {
+    //fputs(info->content, inode);
+    if (fputc(content, inodeFd) == EOF) {
+        close_buffer_stream(&inodeFd);
         return 0;
     }
     return 1;
 }
 
-int symlink_resolve(char *file, char *symlink, int tries) {
+int update_file_permission(const char *file, mode_t permission) {
+    if (chmod(file, permission) < 0) {
+        printf("Could not update permissions for file '%s'\n", file);
+        perror("Following error occurred: ");
+        return 0;
+    }
+    return 1;
+}
+
+int symlink_resolve(const char *file, const char *symlink, int tries) {
     if (remove(symlink) == 0) {
         if (link_symlink(file, symlink, tries) == 0) {
             unlink(file);
@@ -143,13 +172,13 @@ int symlink_resolve(char *file, char *symlink, int tries) {
         } else printf("%s file deleted successfully.\n", symlink);
     } else {
         printf("Unable to delete the file\n");
-        perror("Following error occurred\n");
+        perror("Following error occurred: ");
         return 0;
     }
     return 1;
 }
 
-int link_symlink(char *pathname, char *slink, int tries) {
+int link_symlink(const char *pathname, const char *slink, int tries) {
     if (tries <= 0) return 0;
     if (symlink(pathname, slink) != 0) {
         printf("symlink() error happended...\n Attempting quick fix...");
@@ -158,81 +187,67 @@ int link_symlink(char *pathname, char *slink, int tries) {
     return 1;
 }
 
-void updateInodeMetadata(struct stat info, const char *filename) {
+void update_inode_meta_data(struct stat info, const char *filename) {
     if (S_ISLNK(info.st_mode)) {
         printf("No need to update meta-data inode times for link: '%s'\n", filename);
         return;
     }
 
-    struct utimbuf inodeInfo;
-    inodeInfo.modtime = info.st_mtime;
-    inodeInfo.actime = info.st_atime;
+    struct utimbuf inode_info;
+    inode_info.modtime = info.st_mtime;
+    inode_info.actime = info.st_atime;
 
-    if (utime(filename, &inodeInfo) == 0) printf("Successfully updated meta-data inode times for '%s'\n", filename);
+    if (utime(filename, &inode_info) == 0) printf("Successfully updated meta-data inode times for '%s'\n", filename);
     else printf("Failure upon updating meta-data inode times for '%s'\n", filename);
 }
 
-int send_package(int socket, void *buffer, size_t length) {
-    char *ptr = (char*)buffer;
-    while (length > 0) {
-        int i = send(socket, ptr, length, 0);
-        if (i < 1) return 0;
-        ptr += i, length -= i;
-    }
-    return 1;
-}
-
-void closeBufferStream(FILE **p) {
-    fclose(*p), *p = NULL;
-}
-
 void directory_storage(int socket) {
-    repo_tcp *client_repo_tcp = (repo_tcp*)malloc(sizeof(repo_tcp) + 1);
-    if (!client_repo_tcp) {
-        packageReply(socket, 'E');
-        perror("Memory allocation overflow error: \n");
-        return;
+    tcp_repo *client_tcp_repo = (tcp_repo*)malloc(sizeof(tcp_repo) + 1);
+    if (!client_tcp_repo) {
+        package_reply(socket, 'E');
+        operation_error("Memory allocation overflow error: \n");
     }
 
-    if (!get_package_repo_replay(socket, client_repo_tcp)) {
-        free(client_repo_tcp);
-        connection_error("Could not recieve message request from client: ");
+    if (!get_package_repo_replay(socket, client_tcp_repo)) {
+        free(client_tcp_repo);
+        operation_error("Could not recieve message request from client: ");
     } else {
         struct stat st;
-        if (stat(client_repo_tcp->client_repo, &st) == -1) {
-            printf("Creating new server side client directory '%s'\n", client_repo_tcp->client_repo);
-            if (mkdir(client_repo_tcp->client_repo, client_repo_tcp->permission) == -1) { 
-                packageReply(socket, 'E');
-                perror("Could not create directory: \n");
-                return;
+        if (stat(client_tcp_repo->client_repo, &st) == -1) {
+            printf("Creating new server side client directory '%s'\n", client_tcp_repo->client_repo);
+            if (mkdir(client_tcp_repo->client_repo, client_tcp_repo->permission) == -1) { 
+                package_reply(socket, 'E');
+                free(client_tcp_repo);
+                operation_error("Could not create directory: \n");
             }
-        } else printf("Updating server side client directory '%s'\n", client_repo_tcp->client_repo);
+        } else printf("Updating server side client directory '%s'\n", client_tcp_repo->client_repo);
         char origin_repo[PATH_MAX + 1];
-        strcpy(origin_repo, client_repo_tcp->client_repo);
-        strcat(origin_repo, client_repo_tcp->origin);
+        strcpy(origin_repo, client_tcp_repo->client_repo);
+        strcat(origin_repo, client_tcp_repo->origin);
         if (stat(origin_repo, &st) == -1) {
-            printf("Creating new server side directory '%s' in '%s'\n\n", client_repo_tcp->origin, client_repo_tcp->client_repo);
-            printf("Transferring '%s' to '%s'\n", client_repo_tcp->origin, client_repo_tcp->client_repo);
-            if (mkdir(origin_repo, client_repo_tcp->permission) == -1) {
-                packageReply(socket, 'E');
-                perror("Could not create directory: \n");
-                return;
+            printf("Creating new server side directory '%s' in '%s'\n\n", client_tcp_repo->origin, client_tcp_repo->client_repo);
+            printf("Transferring '%s' to '%s'\n", client_tcp_repo->origin, client_tcp_repo->client_repo);
+            if (mkdir(origin_repo, client_tcp_repo->permission) == -1) {
+                package_reply(socket, 'E');
+                free(client_tcp_repo);
+                operation_error("Could not create directory: ");
             }
         } else printf("Updating server side directory on '%s'\n\n", origin_repo);
-        packageReply(socket, 'S');
+        package_reply(socket, 'S');
     }
-    free(client_repo_tcp);
+    free(client_tcp_repo);
 }
 
-void saveFile (int socket) {
+void save_file(int socket) {
     directory_storage(socket);
     tcp_content *info;
     if (!(info = (tcp_content*)malloc(sizeof(tcp_content) + 1))) {
-        packageReply(socket, 'E');
+        package_reply(socket, 'E');
         perror("Memory allocation overflow error: \n");
         return;
     }
 
+    int byte_mask;
     FILE *inode = NULL;
     while ((info->command != 'Q')) {
         if (!get_package_content_replay(socket, info) || info->file_type == 'E') {
@@ -245,36 +260,35 @@ void saveFile (int socket) {
             if (lstat(info->filename, &statRes) == 0) {
                 FILE *fp = fopen(info->filename, "rb");
                 char *file_hash = hash(fp);
-                closeBufferStream(&fp);
-                if (compareHash(info->hash, file_hash) && (info->inodeInfo.st_size == statRes.st_size)) {
+                close_buffer_stream(&fp);
+                if (compare_hash(info->hash, file_hash) && (info->inode_info.st_size == statRes.st_size)) {
                     printf("skip package update for file '%s'\n", info->filename);
-                    packageReply(socket, 'S');
+                    package_reply(socket, 'S');
                     continue;
-                } else {
-                    printf("Writing/Updating package for storage '%s'\n", info->filename);
-                    packageReply(socket, 'T');
-                }
+                } else printf("Writing/Updating package for storage '%s'\n", info->filename);
                 free(file_hash);
-            } else packageReply(socket, 'T');
+            }
             if (!inode) inode = fopen(info->filename, "w+b");
             if(inode == 0) {
                 printf("rip in aids my friend\n");
                 printf("Error on file -> %s\n", info->filename);
             }
-            if (update_file_permission(info->filename, info->inodeInfo.st_mode) == 0) break;
+            byte_mask = byte_sum(info->filename);
+            if (update_file_permission(info->filename, info->inode_info.st_mode) == 0) break;
+            package_reply(socket, 'T');
         } else if (info->file_type == 'd') {
             struct stat st;
             if (stat(info->filename, &st) == -1) {
-                if (mkdir(info->filename, info->inodeInfo.st_mode) == -1) {
-                    printf("Could not transfer directory '%s'\n", info->filename);
-                    packageReply(socket, 'E');
+                if (mkdir(info->filename, info->inode_info.st_mode) == -1) {
+                    printf("Could not allocate directory space for '%s'\n", info->filename);
+                    package_reply(socket, 'E');
                     continue;
                 }
                 printf("Transferring directory '%s'\n", info->filename);
-                packageReply(socket, 'S');
+                package_reply(socket, 'R');
             } else {
                 printf("Updating directory '%s'\n", info->filename);
-                packageReply(socket, 'S');
+                package_reply(socket, 'R');
             }
         } else if (info->file_type == '~') {
             printf("Linking %s to %s as a symlink\n", info->filename, info->ln_filename);
@@ -282,25 +296,71 @@ void saveFile (int socket) {
                 printf("Linked %s to %s as a symlink\n", info->filename, info->ln_filename);
             } else printf("Could not linked %s to %s as a symlink\n", info->filename, info->ln_filename);
         } else if (info->file_type == ' ') {
-            closeBufferStream(&inode);
-            updateInodeMetadata(info->inodeInfo, info->filename);
+            close_buffer_stream(&inode);
+            update_inode_meta_data(info->inode_info, info->filename);
+            byte_mask = 0;
             printf("Finished file transfer for '%s'\n", info->filename);
         } else if (info->file_type == 'f') {
-            decryptContent(&info->content, info->content_size);
-            //fputs(info->content, inode);
-            fputc(info->content, inode);
+            decrypt_content(&info->content, byte_mask);
+            if (update_file(info->content, inode) == 0) {
+                package_reply(socket, 'F');
+                printf("Could not write to file '%s' ", info->filename);
+                perror("fputc(...) raised an error: ");
+                break;
+            }
+            package_reply(socket, 'R');
         }
     }
-    if (info->command == 'Q') {
+    char last_commnad = info->command;
+    free(info);
+    if (last_commnad == 'Q') {
     	printf("TRANSMIT_OK\n");
-        packageReply(socket, 'C');
-        free(info);
+        package_reply(socket, 'C');
     } else {
         printf("TRANSMIT_ERROR\n\n");
-        packageReply(socket, 'E');
-        free(info);
+        package_reply(socket, 'E');
         exit(0);
     }
+}
+
+void client_request(int socket) {
+    request *client_tcp_req = (request*)malloc(sizeof(request) + 1);
+    if (!client_tcp_req) {
+        package_reply(socket, 'E');
+        perror("Memory allocation overflow error: \n");
+        return;
+    }
+
+    request *req;
+    if (!(req = get_package_request_replay(socket, client_tcp_req))) {
+        free(client_tcp_req);
+        operation_error("Could not recieve message request from client: \n");
+    }
+
+    operation_request operation = req->req;
+    free(client_tcp_req);
+    if (operation == UPLOAD) {
+        package_reply(socket, 'R');
+        save_file(socket);
+    } else if (operation == DOWNLOAD) {
+        package_reply(socket, 'R');
+        /* TODO: client download (pull repo request) */
+    } else {
+        printf("Something went horribly wrong with the attempt for the client request...\n");
+        package_reply(socket, 'F');
+        return;
+    }
+    printf("*\n*\n*\nCompleted client request\n\n");
+}
+
+int send_package(int socket, void *buffer, size_t length) {
+    char *ptr = (char*)buffer;
+    while (length > 0) {
+        int i = send(socket, ptr, length, 0);
+        if (i < 1) return 0;
+        ptr += i, length -= i;
+    }
+    return 1;
 }
 
 void relay_message (int socket) {
@@ -314,13 +374,13 @@ void relay_message (int socket) {
         if (!(strcmp(&buffer[total], "endo") == 0) && (total == sizeof(buffer))) break;
     }
 
-    if (count < 0) connection_error("ERROR reading from socket: ");
+    if (count < 0) operation_error("ERROR reading from socket: ");
     printf("Here is the message: %s\n",buffer);
 
     int i;
     for (i = 0; i < 5; i++) {
         int b = (i != 4) ? send_package(socket,"I got your message",18) : send_package(socket,"Final ending...",15);
-        if (!b) connection_error("ERROR writing to socket: ");
+        if (!b) operation_error("ERROR writing to socket: ");
         printf("something happened\n");
     }
 }

@@ -5,11 +5,20 @@
 #include "hash.h"
 
 /* Package/Data Structures */
+typedef enum operation {
+    UPLOAD,
+    DOWNLOAD
+} operation_request;
+
+typedef struct {
+    operation_request req;
+} request;
+
 typedef struct {
     char client_repo[256];
     char origin[256];
     mode_t permission;
-} repo_tcp;
+} tcp_repo;
 
 typedef struct {
     char command;
@@ -20,7 +29,7 @@ typedef struct {
     char ln_filename[256];
     int content_size;
     char hash[HASH_SIZE];
-    struct stat inodeInfo;
+    struct stat inode_info;
 } tcp_content;
 
 #endif // _FNSTRUCT_

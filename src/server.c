@@ -18,8 +18,7 @@ int main(int argc, char *argv[]) {
         if (pid < 0) perror("ERROR on fork: ");
         if (pid == 0)  {
             close(sockfd);
-            saveFile(newsockfd); //relay_message(newsockfd);
-            printf("*\n*\n*\nCompleted client request\n\n");
+            client_request(newsockfd); //relay_message(newsockfd);
             exit(0);
         } else close(newsockfd);
     }

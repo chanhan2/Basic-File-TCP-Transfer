@@ -6,10 +6,9 @@
 
 /*
     function prototype for mask
-
-    ToDo: size is package content byte reference
 */
-void encryptContent(char *array, int *s_byte);
-void decryptContent(char *array, int s_byte);
+int byte_sum(const char *byte);
+void encrypt_content(char *array, const int s_byte);
+void decrypt_content(char *array, const int s_byte);
 
 #endif // _MASK_

@@ -26,7 +26,7 @@
 /* 
     TCP functions to emitting and reading/creating package contents
 */
-void connection_error(const char *msg) {
+void operation_error(const char *msg) {
     perror(msg);
     exit(1);
 }
@@ -44,8 +44,10 @@ void error(int socket, int status, const char *msg) {
     exit(status);
 }
 
-void service_error(const char *msg) {
+void service_error(const char *msg, int socket) {
     printf("%s\n", msg);
+    end_tcp(socket);
+    close(socket);
     exit(0);
 }
 
@@ -54,29 +56,30 @@ int connect_tcp(char *host, int port) {
     struct hostent *server;
     int portno = port/*atoi(port)*/, sockfd;
 
-    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) connection_error("Client opening socket error: ");
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) operation_error("Client opening socket error: ");
 
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(portno);
 
-    if (inet_pton(AF_INET, host, &serv_addr.sin_addr) < 1) connection_error("Client inet_pton error: ");
+    if (inet_pton(AF_INET, host, &serv_addr.sin_addr) < 1) operation_error("Client inet_pton error: ");
 
-    if ((server = gethostbyname(host)) == NULL) connection_error("Client no such host error: ");
+    if ((server = gethostbyname(host)) == NULL) operation_error("Client no such host error: ");
 
     bzero((char*)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     bcopy((char*)server->h_addr, (char*)&serv_addr.sin_addr.s_addr, server->h_length);
     serv_addr.sin_port = htons(portno);
 
-    if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) connection_error("Client Connection error: ");
+    if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) operation_error("Client Connection error: ");
 
     return sockfd;
 }
 
 char get_replay(int socket) {
-    int nbytes = 0;
     tcp_content *package_call = (tcp_content*)malloc(sizeof(tcp_content) + 1);
     if (!package_call) error(socket, 1, "Memory allocation overflow error\n");
+
+    int nbytes = 0;
     while (((nbytes += recv(socket, package_call, sizeof(tcp_content), 0)) > 0) && (nbytes != sizeof(tcp_content)));
     char command = (nbytes == sizeof(tcp_content)) ? package_call->command : '?';
     free(package_call);
@@ -98,7 +101,7 @@ void end_tcp(int sockfd) {
 
     char reply = get_replay(sockfd);
     if (reply == 'C') printf("TRANSMIT_OK\n");
-    else if (reply == 'E') printf("TRANSMIT_ERROR:\nFailure to upload files");
+    else if (reply == 'E') printf("TRANSMIT_ERROR:\nFailure to upload files\n");
     else printf("Lost connection to server...\n");
 }
 
@@ -107,22 +110,22 @@ void printUseless(int indent) {
     printf("%*s%s\n", indent, "", "..");
 }
 
-void mod_path(const char *origin, char *dest, char *file, char *path, int shift) {
+void mod_path(const char *origin, const char *dest, const char *file, char *path, int shift) {
     strcpy(path, dest);
     strcat(path, origin);
     strcat(path, &file[shift]);
 }
 
-void copyHash(char *array, char *hash) {
+void copy_hash(char *array, const char *hash) {
     int i;
     for (i = 0; i < HASH_SIZE; i++) array[i] = hash[i];
 }
 
-void file_signature(char *file, char *dest) {
+void file_signature(const char *file, char *dest) {
     FILE *fh = fopen(file, "rb");
     char *file_hash = hash(fh);
-    copyHash(dest, file_hash);
-    closeBufferStream(&fh);
+    copy_hash(dest, file_hash);
+    close_buffer_stream(&fh);
     free(file_hash);
 }
 
@@ -133,14 +136,10 @@ char *concat(const char *s1, const char *s2) {
     return result;
 }
 
-void transfer_file(char *file, const char *origin, const char *src, char *dest, struct stat statRes, int socket, int shift) {
+void transfer_file(const char *file, const char *origin, const char *src, const char *dest, struct stat statRes, int socket, int shift) {
     /**
         ToDo: Check server status reply before continuing with I/O, followed by package construction and emitting package
     **/
-
-    int isLink;
-    if (S_ISLNK(statRes.st_mode)) isLink = 1;
-    if (S_ISREG(statRes.st_mode)) isLink = 0;
 
     tcp_content *info = (tcp_content*)malloc(sizeof(tcp_content) + 1);
     if (!info) error(socket, 1, "Memory allocation overflow error\n");
@@ -149,9 +148,10 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
     strcpy(info->filename, path_trim);
     //strcpy(info.content, "\n");
     info->content = '\n';
-    info->inodeInfo = statRes;
+    info->inode_info = statRes;
 
-    if (isLink == 1) {
+    int byte_mask = 0;
+    if (S_ISLNK(statRes.st_mode)) {
         char buf[PATH_MAX + 1];
         //char base[PATH_MAX + 1];
         char basetest[PATH_MAX + 1];
@@ -171,17 +171,27 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
         printf("Relative path -> %s\n", &buf[strlen(baseline2)]);
         */
         transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
-    } else {
+        free(info);
+        return;
+    } else if (S_ISREG(statRes.st_mode)) {
         info->file_type = '_';
         strcpy(info->ln_filename, "");
         file_signature(file, info->hash);
         transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
-        if (get_replay(socket) == 'S') return;
+        if (get_replay(socket) == 'S') {
+            free(info);
+            return;
+        }
+        byte_mask = byte_sum(info->filename);
+    } else {
+        free(info);
+        printf("An unexpected inode type was seen under the attempt of transferring file, inode is '%s'\n", file);
+        return;
     }
 
     info->file_type = 'f';
-    FILE *fs = fopen(file, "rb");
-    if(fs == NULL) {
+    FILE *fs;
+    if((fs = fopen(file, "rb")) == NULL) {
         printf("ERROR: Could not access File %s\n", file);
         error(socket, 1, "ERROR File: ");
     }
@@ -190,23 +200,25 @@ void transfer_file(char *file, const char *origin, const char *src, char *dest, 
     //while (fgets (info.content, 256, fs) != NULL) {
     while ((ch = fgetc(fs)) != EOF) {
         info->content = ch;
-        encryptContent(&info->content, &info->content_size);
+        encrypt_content(&info->content, byte_mask);
         transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
+        if (get_replay(socket) == 'F') {
+            service_error("Upload Failure.....\n\nTRANSMIT_FAILURE\n", socket);
+            close_buffer_stream(&fs);
+            free(info);
+            return;
+        }
     }
     info->file_type = ' ';
     transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
-    closeBufferStream(&fs);
+    close_buffer_stream(&fs);
     free(info);
 }
 
-void tcp_directory(char *file, const char *origin, const char *src, char *dest, struct stat statRes, int socket, int shift) {
+void tcp_directory(const char *file, const char *origin, const char *src, const char *dest, struct stat statRes, int socket, int shift) {
     /**
         ToDo: Check server status reply before continuing with I/O, followed by package construction and emitting package
     **/
-
-    int isLink;
-    if (S_ISLNK(statRes.st_mode)) isLink = 1;
-    if (S_ISDIR(statRes.st_mode)) isLink = 0;
 
     tcp_content *info = (tcp_content*)malloc(sizeof(tcp_content) + 1);
     if (!info) error(socket, 1, "Memory allocation overflow error\n");
@@ -215,9 +227,9 @@ void tcp_directory(char *file, const char *origin, const char *src, char *dest, 
     strcpy(info->filename, path_trim);
     //strcpy(info.content, "\n");
     info->content = '\n';
-    info->inodeInfo = statRes;
+    info->inode_info = statRes;
 
-    if (isLink == 1) {
+    if (S_ISLNK(statRes.st_mode)) {
         info->file_type = '~';
         char buf[PATH_MAX + 1];
         char base[PATH_MAX + 1];
@@ -231,19 +243,24 @@ void tcp_directory(char *file, const char *origin, const char *src, char *dest, 
         printf("Baseline path for file -> %s\n", buf);
         printf("Baseline path for src -> %s\n", baseline2);
         printf("Relative path -> %s\n", &buf[strlen(baseline2)]);
-    } else {
+    } else if (S_ISDIR(statRes.st_mode)) {
         info->file_type = 'd';
         strcpy(info->ln_filename, "");
+    } else {
+        free(info);
+        printf("An unexpected inode type was seen under the attempt of transferring directory, inode is '%s'\n", file);
+        return;
     }
+
     transmission_error(tcp_package(socket, info, sizeof(tcp_content), 0, 0), socket);
     free(info);
 
     char replay = get_replay(socket);
-    if (replay == 'E') service_error("Cannot transfer directory to current directory due to service error or terminated service\n");
-    else if (replay == '?') connection_error("Cannot transfer directory to current directory due to terminated server communication\n");
+    if (replay == 'E') service_error("Cannot transfer directory to current directory due to service error or terminated service\n", socket);
+    else if (replay == '?') operation_error("Cannot transfer directory to current directory due to terminated server communication\n");
 }
 
-void listdir(int socket, int shift, const char *origin, const char *name, char *dest) {
+void listdir(int socket, int shift, const char *origin, const char *name, const char *dest) {
     static int indent = 0;
     DIR *dir;
     struct dirent *entry;

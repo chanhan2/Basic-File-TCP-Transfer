@@ -1,23 +1,25 @@
 /* C library */
 #include <string.h>
+#include <stdio.h>
 
 /* external library */
 #include "mask.h"
 
-void encryptContent(char *array, int *s_byte) {
-    char *secret = __SECRET__;
-    int size = strlen(__SECRET__);
-    //*s_byte = size;
-    *s_byte = -1;
+int byte_sum(const char *byte) {
+    if (*byte == '\0') return 0;
+
+    int byteTotal = DEFAULT_KEY;
     int i;
-    for(i = 0; i < size; i++)
-        *array ^= secret[i % 8];
+    for (i = 0; *(byte + i) != '\0'; byteTotal ^= (int)(*(byte + i++)));
+    return byteTotal % strlen(__SECRET__);
 }
 
-void decryptContent(char *array, int s_byte) {
-    char *secret = __SECRET__;
-    s_byte = strlen(__SECRET__);
+void encrypt_content(char *array, const int s_byte) {
     int i;
-    for(i = 0; i < s_byte; i++)
-        *array ^= secret[i % 8];
+    for(i = 0; i < MASKLEN; *array ^= __SECRET__[i++ % s_byte]);
+}
+
+void decrypt_content(char *array, const int s_byte) {
+    int i;
+    for(i = 0; i < MASKLEN; *array ^= __SECRET__[i++ % s_byte]);
 }
