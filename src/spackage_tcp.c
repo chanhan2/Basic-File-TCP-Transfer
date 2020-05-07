@@ -60,7 +60,7 @@ int start_tcp_server(int port) {
     return sockfd;
 }
 
-void transmission_error(int check, int sockfd) {
+void transmission_request(int check, int sockfd) {
     if (check < 0) {
         printf("Transmission failure - Missing/Currupted Package content\n");
         close(sockfd);
@@ -120,7 +120,7 @@ request *get_package_request_replay(int socket, request *package_reply) {
 
 int length(char *array) {
     int size = 0;
-    while (array && array[size] != '\0') size++;
+    while (array && array[size] != '\0' && array[size + 1] != '\0') size++;
     return size;
 }
 
@@ -130,15 +130,25 @@ int compare_hash(char *hash_f1, char *hash_f2) {
     return i == HASH_SIZE;
 }
 
-void package_reply(int socket, const char command) {
-    tcp_content *package_call = (tcp_content*)malloc(sizeof(tcp_content) + 1);
+void package_reply(int socket, const char reply) {
+    tpc_reply *package_call = (tpc_reply*)malloc(sizeof(tpc_reply) + 1);
     if (!package_call) {
         perror("Memory allocation overflow error: \n");
         return;
     }
-    package_call->command = command;
-    transmission_error(tcp_package(socket, package_call, sizeof(tcp_content), 0, 0), socket);
+
+    package_call->reply = reply;
+    transmission_request(tcp_package(socket, package_call, sizeof(tpc_reply), 0, 0), socket);
     free(package_call);
+}
+
+FILE *open_fd(const char *file, const char *flag) {
+    FILE *fd = fopen(file, flag);
+    if (!fd) {
+        printf("ERROR: Could not open File %s for access\n", file);
+        close_buffer_stream(&fd);
+    }
+    return fd;
 }
 
 void close_buffer_stream(FILE **p) {
@@ -169,7 +179,7 @@ int symlink_resolve(const char *file, const char *symlink, int tries) {
             unlink(file);
             printf("Could not resolve symlink() for file %s\n", symlink);
             return 0;
-        } else printf("%s file deleted successfully.\n", symlink);
+        } else printf("'%s' file deleted successfully.\n", symlink);
     } else {
         printf("Unable to delete the file\n");
         perror("Following error occurred: ");
@@ -182,7 +192,7 @@ int link_symlink(const char *pathname, const char *slink, int tries) {
     if (tries <= 0) return 0;
     if (symlink(pathname, slink) != 0) {
         printf("symlink() error happended...\n Attempting quick fix...");
-        return symlink_resolve(pathname, slink, tries-1);
+        return symlink_resolve(pathname, slink, tries - 1);
     }
     return 1;
 }
@@ -201,45 +211,96 @@ void update_inode_meta_data(struct stat info, const char *filename) {
     else printf("Failure upon updating meta-data inode times for '%s'\n", filename);
 }
 
-void directory_storage(int socket) {
+int create_repo_directory(const char *path, const char *storage_path, const mode_t permission) {
+    //printf("param create_repo_directory --- path: <%s>, storage_path: <%s>, permission <%03o>\n", path, storage_path, permission);
+    /**
+        ToDo: Update corresponding created directory permissions with respect to remote 
+    **/
+
+    char path_tmp[strlen(path) + 1];
+    strcpy(path_tmp, path);
+    char *token;
+    token = strtok(path_tmp, "/");
+
+    char directory[strlen(path) + 1];
+    strcpy(directory, "");
+    while(token != NULL) {
+        strcat(strcat(directory, token), "/");
+        char directory_tmp[strlen(token) + 2];
+        strcat(strcpy(directory_tmp, token), "/");
+
+        struct stat statRes;
+        if (/*strcmp(storage_path, directory_tmp) &&*/ strcmp("./", directory_tmp) && strcmp("../", directory_tmp) && lstat(directory, &statRes) < 0 && mkdir(directory, permission) == -1) {
+            printf("Could not create %s directory\n", directory);
+            return -1;
+        }
+        token = strtok(NULL, "/");
+    }
+    return 0;
+}
+
+int directory_storage(int socket, user_side user) {
     tcp_repo *client_tcp_repo = (tcp_repo*)malloc(sizeof(tcp_repo) + 1);
     if (!client_tcp_repo) {
         package_reply(socket, 'E');
-        operation_error("Memory allocation overflow error: \n");
+        perror("Memory allocation overflow error: \n");
+        return -1;
     }
 
     if (!get_package_repo_replay(socket, client_tcp_repo)) {
         free(client_tcp_repo);
-        operation_error("Could not recieve message request from client: ");
+        printf("Could not recieve message request from client\n");
+        return -1;
     } else {
+        printf("debug _recieved tcp repo data_ --- client_tcp_repo->client_repo: <%s>, client_tcp_repo->origin: <%s>, client_tcp_repo->permission <%03o>\n", client_tcp_repo->client_repo, client_tcp_repo->origin, client_tcp_repo->permission);
+        char repo_storage[strlen(client_tcp_repo->client_repo) + strlen(client_tcp_repo->origin) + 1];
+        if (user == SERVER) {
+            strcpy(repo_storage, client_tcp_repo->client_repo);
+            if (strcmp(client_tcp_repo->origin, "/") != 0) strcat(repo_storage, client_tcp_repo->origin);
+            printf("Creating new server side directory '%s'\n", repo_storage);
+        } else if (user == CLIENT) {
+            strcpy(repo_storage, client_tcp_repo->origin);
+            printf("Pulling repo directory '%s'\n", repo_storage);
+        }
+        printf("debug --- repo_storage: <%s>, client_tcp_repo->client_repo: <%s>, client_tcp_repo->permission) <%03o>\n", repo_storage, client_tcp_repo->client_repo, client_tcp_repo->permission);
         struct stat st;
-        if (stat(client_tcp_repo->client_repo, &st) == -1) {
-            printf("Creating new server side client directory '%s'\n", client_tcp_repo->client_repo);
-            if (mkdir(client_tcp_repo->client_repo, client_tcp_repo->permission) == -1) { 
+        if (stat(repo_storage, &st) == -1) {
+            if (create_repo_directory(repo_storage, client_tcp_repo->client_repo, client_tcp_repo->permission) == -1) { 
                 package_reply(socket, 'E');
                 free(client_tcp_repo);
-                operation_error("Could not create directory: \n");
+                perror("Could not create directory: \n");
+                return -1;
             }
-        } else printf("Updating server side client directory '%s'\n", client_tcp_repo->client_repo);
+        } else {
+            if (user == SERVER) printf("Updating server side client directory '%s'\n", repo_storage);
+            if (user == CLIENT) printf("Updating client side directory '%s'\n", repo_storage);
+        }
         char origin_repo[PATH_MAX + 1];
-        strcpy(origin_repo, client_tcp_repo->client_repo);
-        strcat(origin_repo, client_tcp_repo->origin);
+        strcpy(origin_repo, repo_storage);
+        //strcat(origin_repo, client_tcp_repo->origin);
         if (stat(origin_repo, &st) == -1) {
-            printf("Creating new server side directory '%s' in '%s'\n\n", client_tcp_repo->origin, client_tcp_repo->client_repo);
-            printf("Transferring '%s' to '%s'\n", client_tcp_repo->origin, client_tcp_repo->client_repo);
+            printf("Creating new server side directory '%s' in '%s'\n\n", client_tcp_repo->origin, repo_storage);
+            printf("Transferring '%s' to '%s'\n", client_tcp_repo->origin, repo_storage);
             if (mkdir(origin_repo, client_tcp_repo->permission) == -1) {
                 package_reply(socket, 'E');
                 free(client_tcp_repo);
-                operation_error("Could not create directory: ");
+                perror("Could not create directory: ");
+                return -1;
             }
         } else printf("Updating server side directory on '%s'\n\n", origin_repo);
         package_reply(socket, 'S');
     }
     free(client_tcp_repo);
+    return 1;
 }
 
-void save_file(int socket) {
-    directory_storage(socket);
+void save_file(int socket, user_side user) {
+    if (directory_storage(socket, user) != 1) {
+        printf("TRANSMIT_ERROR\n\n");
+        package_reply(socket, 'E');
+        exit(0);
+    }
+
     tcp_content *info;
     if (!(info = (tcp_content*)malloc(sizeof(tcp_content) + 1))) {
         package_reply(socket, 'E');
@@ -251,14 +312,17 @@ void save_file(int socket) {
     FILE *inode = NULL;
     while ((info->command != 'Q')) {
         if (!get_package_content_replay(socket, info) || info->file_type == 'E') {
-            free(info);
             printf("Connection with client is terminated, due to some interruption.\n");
             break;
         }
         if (info->file_type == '_') {
             struct stat statRes;
             if (lstat(info->filename, &statRes) == 0) {
-                FILE *fp = fopen(info->filename, "rb");
+                FILE *fp = open_fd(info->filename, "rb");
+                if (!fp) {
+                    package_reply(socket, 'E');
+                    continue;
+                }
                 char *file_hash = hash(fp);
                 close_buffer_stream(&fp);
                 if (compare_hash(info->hash, file_hash) && (info->inode_info.st_size == statRes.st_size)) {
@@ -268,10 +332,10 @@ void save_file(int socket) {
                 } else printf("Writing/Updating package for storage '%s'\n", info->filename);
                 free(file_hash);
             }
-            if (!inode) inode = fopen(info->filename, "w+b");
-            if(inode == 0) {
-                printf("rip in aids my friend\n");
-                printf("Error on file -> %s\n", info->filename);
+            if (!inode) inode = open_fd(info->filename, "w+b");
+            if(!inode) {
+                package_reply(socket, 'E');
+                continue;
             }
             byte_mask = byte_sum(info->filename);
             if (update_file_permission(info->filename, info->inode_info.st_mode) == 0) break;
@@ -321,36 +385,6 @@ void save_file(int socket) {
         package_reply(socket, 'E');
         exit(0);
     }
-}
-
-void client_request(int socket) {
-    request *client_tcp_req = (request*)malloc(sizeof(request) + 1);
-    if (!client_tcp_req) {
-        package_reply(socket, 'E');
-        perror("Memory allocation overflow error: \n");
-        return;
-    }
-
-    request *req;
-    if (!(req = get_package_request_replay(socket, client_tcp_req))) {
-        free(client_tcp_req);
-        operation_error("Could not recieve message request from client: \n");
-    }
-
-    operation_request operation = req->req;
-    free(client_tcp_req);
-    if (operation == UPLOAD) {
-        package_reply(socket, 'R');
-        save_file(socket);
-    } else if (operation == DOWNLOAD) {
-        package_reply(socket, 'R');
-        /* TODO: client download (pull repo request) */
-    } else {
-        printf("Something went horribly wrong with the attempt for the client request...\n");
-        package_reply(socket, 'F');
-        return;
-    }
-    printf("*\n*\n*\nCompleted client request\n\n");
 }
 
 int send_package(int socket, void *buffer, size_t length) {

@@ -5,6 +5,11 @@
 #include "hash.h"
 
 /* Package/Data Structures */
+typedef enum user {
+    CLIENT,
+    SERVER
+} user_side;
+
 typedef enum operation {
     UPLOAD,
     DOWNLOAD
@@ -15,9 +20,15 @@ typedef struct {
 } request;
 
 typedef struct {
+    char reply;
+} tpc_reply;
+
+typedef struct {
     char client_repo[256];
     char origin[256];
     mode_t permission;
+    int idx;
+    //int offset_idx_len;
 } tcp_repo;
 
 typedef struct {
