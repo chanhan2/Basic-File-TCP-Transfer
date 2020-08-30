@@ -142,7 +142,9 @@ int main(int argc, char *argv[]) {
         if (reply != 'N' && !S_ISDIR(statRes.st_mode) && walk_path_permission((S_ISDIR(statRes.st_mode)) ? origin : &origin[2], 1, sockfd) < 0) operation_error("Could not access local directory meta-data\n");
         else if (reply != 'N' && S_ISDIR(statRes.st_mode)) {
             if (strcmp(argv[2], "./") != 0 && strcmp(argv[2], "../") != 0 && walk_path_permission((S_ISDIR(statRes.st_mode)) ? origin : &origin[0], 0, sockfd) < 0) operation_error("Could not access local directory meta-data\n");
-            else walk_path_permission(ref_path, 0, sockfd);
+            else {
+                if (walk_path_permission(ref_path, 0, sockfd) < 0) operation_error("Could not access local directory meta-data\n");
+            }
         }
         free(info_dir);
 
