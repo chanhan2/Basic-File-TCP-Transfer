@@ -6,6 +6,7 @@
 
 # Directories to not track
 bin/
+review_/
 
 # Etc...
 client

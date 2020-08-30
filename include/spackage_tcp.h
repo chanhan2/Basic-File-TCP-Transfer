@@ -14,7 +14,7 @@
 */
 void connection_error(const char *msg);
 int start_tcp_server(int port);
-void transmission_request(int check, int sockfd);
+void tcp_request_error_handler(int check, int sockfd);
 int tcp_package(int socket, void *package, size_t length, int flag, int type);
 tcp_content *get_package_content_replay(int socket, tcp_content *package_reply);
 tcp_repo *get_package_repo_replay(int socket, tcp_repo *package_reply);
@@ -22,7 +22,7 @@ request *get_package_request_replay(int socket, request *package_reply);
 void relay_message(int socket);
 FILE *open_fd(const char *file, const char *flag);
 void close_buffer_stream(FILE **p);
-int create_repo_directory(const char *path, const char *storage_path, const mode_t permission);
+int create_repo_directory(const char *path, const char *storage_path, int socket, user_side user);
 int directory_storage(int socket, user_side user);
 void save_file (int socket, user_side user);
 void client_request(int socket);

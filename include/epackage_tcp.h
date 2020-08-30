@@ -26,10 +26,11 @@ void printUseless(int indent);
 void mod_path(const char *dest, const char *file, char *path, int shift);
 int file_signature(const char *file, char *dest);
 void copy_hash(char *array, const char *hash);
+int walk_path_permission(char *path, int isFile, int socket);
 void transfer_file(const char *file, const char *src, const char *dest, struct stat statRes, int socket, int shift);
 void tcp_directory(const char *file, const char *src, const char *dest, struct stat statRes, int socket, int shift);
 void listdir(int socket, int shift, const char *name, const char *dest);
 void relayer(int socket);
-char *concat(const char *s1, const char *s2);
+void concat(char *str, const char *s1, const char *s2);
 
 #endif // _EPACKAGE_TCP_

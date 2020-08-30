@@ -13,7 +13,11 @@
  */
 
 char *hash(FILE *f) {
-    char *hash_val = (char*)malloc(sizeof(char) * MAX_BLOCK_SIZE);
+    char *hash_val;
+    if (!(hash_val = (char*)malloc(sizeof(char) * MAX_BLOCK_SIZE))) {
+    	printf("ERROR: Memory allocation overflow error --- Could not compute hash\n");
+    	return NULL;
+    }
     for (int i = 0; i < MAX_BLOCK_SIZE; hash_val[i++] = '\0');
 
     char c;

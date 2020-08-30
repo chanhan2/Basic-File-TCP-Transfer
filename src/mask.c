@@ -11,7 +11,7 @@ int byte_sum(const char *byte) {
     int byteTotal = DEFAULT_KEY;
     int i;
     for (i = 0; *(byte + i) != '\0'; byteTotal ^= (int)(*(byte + i++)));
-    return byteTotal % strlen(__SECRET__);
+    return (byteTotal % strlen(__SECRET__)) ? byteTotal % strlen(__SECRET__) : 1;  // need a new fall-back value instead of the integer '1'
 }
 
 void encrypt_content(char *array, const int s_byte) {
